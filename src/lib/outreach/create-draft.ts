@@ -19,11 +19,20 @@ export async function createOutreachDraft(campaignId: string, companyId: string,
 
   const { data: existingMessages } = await supabase
     .from("outreach_messages")
-    .select("id")
+    .select("id, status, campaign_id")
     .eq("contact_id", contactId);
 
+  // Idempotency: don't create duplicate drafts for the same campaign + contact
+  const existingDraft = existingMessages?.find(
+    (m) => m.campaign_id === campaignId && m.status === "DRAFT"
+  );
+  if (existingDraft) {
+    logger.info("Draft already exists for campaign and contact", { campaignId, contactId, draftId: existingDraft.id });
+    return { status: "drafted" as const, messageId: existingDraft.id, qualityPassed: true, issues: [] };
+  }
+
   const alreadyContacted = (existingMessages?.length ?? 0) > 0;
-  const unsubscribed = false; // no unsubscribe tracking exists yet at this stage — honestly false, not assumed
+  const unsubscribed = existingMessages?.some((m) => m.status === "UNSUBSCRIBED") ?? false;
 
   const message = await generateMessage(context);
   if (!message) {

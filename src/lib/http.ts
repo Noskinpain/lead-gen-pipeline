@@ -4,8 +4,8 @@ const MAX_RETRIES = 5;
 const BASE_DELAY_MS = 1000; // 1 second
 
 // Status codes worth retrying — the server (or network) is likely
-// to recover. 429 = rate limited, 502/503/504 = server-side hiccups.
-const TRANSIENT_STATUS_CODES = new Set([429, 502, 503, 504]);
+// to recover. 429 = rate limited, 500 = internal server error, 502/503/504 = server-side hiccups.
+const TRANSIENT_STATUS_CODES = new Set([429, 500, 502, 503, 504]);
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
