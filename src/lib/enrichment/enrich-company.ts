@@ -1,13 +1,12 @@
 import { supabase } from "../supabase";
 import { fetchWebsiteEnrichment } from "./website-source";
-import { logger } from "../logger";
-import { isStale } from "./freshness";
 import { classifyCompanyText } from "./llm-classify";
+import { isStale } from "./freshness";
+import { logger } from "../logger";
 
 export interface EnrichmentResult {
   companyId: string;
   status: "enriched" | "failed" | "skipped_no_domain" | "skipped_fresh";
-
   fieldsAdded: number;
   error?: string;
 }
@@ -25,29 +24,28 @@ export async function enrichCompany(companyId: string): Promise<EnrichmentResult
   }
 
   if (!company.domain) {
-    // Nothing to enrich against — this is expected sometimes, not an error.
     logger.info("Skipping enrichment: no domain", { companyId });
     return { companyId, status: "skipped_no_domain", fieldsAdded: 0 };
   }
 
-// Check for existing fresh enrichment data first — avoid a wasted fetch
-const { data: existingFacts } = await supabase
-  .from("company_enrichments")
-  .select("field_name, observed_at")
-  .eq("company_id", companyId)
-  .eq("source", "website_scrape");
+  // 2. Cache check: skip the fetch if all existing website facts are still fresh
+  const { data: existingFacts } = await supabase
+    .from("company_enrichments")
+    .select("field_name, observed_at")
+    .eq("company_id", companyId)
+    .eq("source", "website_scrape");
 
-const hasFreshData =
-  existingFacts &&
-  existingFacts.length > 0 &&
-  existingFacts.every((fact) => !isStale(fact.observed_at, fact.field_name));
+  const hasFreshData =
+    existingFacts &&
+    existingFacts.length > 0 &&
+    existingFacts.every((fact) => !isStale(fact.observed_at, fact.field_name));
 
-if (hasFreshData) {
-  logger.info("Skipping enrichment: existing data still fresh", { companyId });
-  return { companyId, status: "skipped_fresh" as const, fieldsAdded: 0 };
-}
-  
-  // 2. Fetch raw enrichment data from the website
+  if (hasFreshData) {
+    logger.info("Skipping enrichment: existing data still fresh", { companyId });
+    return { companyId, status: "skipped_fresh", fieldsAdded: 0 };
+  }
+
+  // 3. Fetch raw enrichment data from the website
   let raw;
   try {
     raw = await fetchWebsiteEnrichment(company.domain);
@@ -57,7 +55,7 @@ if (hasFreshData) {
     return { companyId, status: "failed", fieldsAdded: 0, error: errorMessage };
   }
 
-  // 3. Validate + build rows to insert — only store fields that actually came back
+  // 4. Build rows, only for fields that actually came back
   const now = new Date().toISOString();
   const rows: Array<{ company_id: string; field_name: string; field_value: string; source: string; observed_at: string }> = [];
 
@@ -71,12 +69,23 @@ if (hasFreshData) {
     rows.push({ company_id: companyId, field_name: "body_text_sample", field_value: raw.bodyTextSample, source: "website_scrape", observed_at: now });
   }
 
+  // The "nothing usable" check runs BEFORE the contact signals row is added.
+  // That field is always present, so adding it first would make an
+  // unparseable page look like a successful enrichment.
   if (rows.length === 0) {
     logger.info("Enrichment fetched but nothing usable found", { companyId, domain: company.domain });
     return { companyId, status: "failed", fieldsAdded: 0, error: "No usable data extracted" };
   }
 
-    // 4. Store the facts
+  rows.push({
+    company_id: companyId,
+    field_name: "contact_signals",
+    field_value: raw.contactSignals.length > 0 ? raw.contactSignals.join(",") : "none",
+    source: "website_scrape",
+    observed_at: now,
+  });
+
+  // 5. Store the website facts
   const { error: insertError } = await supabase.from("company_enrichments").insert(rows);
 
   if (insertError) {
@@ -84,7 +93,7 @@ if (hasFreshData) {
     return { companyId, status: "failed", fieldsAdded: 0, error: insertError.message };
   }
 
-  // 5. LLM classification — only if we got body text to classify
+  // 6. LLM classification, only if there is body text to classify
   let classificationFieldsAdded = 0;
 
   if (raw.bodyTextSample) {
@@ -102,6 +111,7 @@ if (hasFreshData) {
     }
   }
 
-  logger.info("Enrichment stored", { companyId, fieldsAdded: rows.length + classificationFieldsAdded });
-  return { companyId, status: "enriched", fieldsAdded: rows.length + classificationFieldsAdded };
+  const totalFields = rows.length + classificationFieldsAdded;
+  logger.info("Enrichment stored", { companyId, fieldsAdded: totalFields });
+  return { companyId, status: "enriched", fieldsAdded: totalFields };
 }

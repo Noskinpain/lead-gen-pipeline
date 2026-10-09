@@ -26,7 +26,6 @@ const score = scorePersonalization(realMessage, realContext, {
   relevant: true,
   natural: false, // YOUR call — the opening sentence reads stiff/awkward
   professional: true,
-  reviewerNotes: "The opening hook is slightly robotic, but all business claims are accurately supported by enriched facts.",
 });
 
 console.log(score);

@@ -5,12 +5,8 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "acquisition:test": "tsx --env-file=.env.local src/lib/acquisition.test.ts",
-    "test:regression": "tsx src/lib/evaluation/regression-suite.test.ts",
-    "test:eval-scoring": "tsx src/lib/evaluation/evaluate-scoring.test.ts",
-    "test:eval-contacts": "tsx src/lib/evaluation/evaluate-contact-selection.test.ts",
-    "test:eval-reply": "tsx --env-file=.env.local src/lib/evaluation/evaluate-reply-classifier.test.ts",
-    "pipeline:e2e": "tsx src/scripts/run-end-to-end-pipeline.ts"
+    "start": "next start",
+    "acquisition:test": "tsx --env-file=.env.local src/lib/acquisition.test.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.116.0",
