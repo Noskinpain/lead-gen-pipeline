@@ -1,6 +1,17 @@
-export type OpportunityStage =
-  | "new" | "qualified" | "contacted" | "replied" | "interested"
-  | "meeting_booked" | "proposal" | "won" | "lost" | "follow_up";
+export const STAGES = [
+  "new",
+  "qualified",
+  "contacted",
+  "follow_up",
+  "replied",
+  "interested",
+  "meeting_booked",
+  "proposal",
+  "won",
+  "lost",
+] as const;
+
+export type OpportunityStage = (typeof STAGES)[number];
 
 const ALLOWED_TRANSITIONS: Record<OpportunityStage, OpportunityStage[]> = {
   new: ["qualified", "lost"],
@@ -15,6 +26,10 @@ const ALLOWED_TRANSITIONS: Record<OpportunityStage, OpportunityStage[]> = {
   lost: [],
 };
 
+export function isStage(value: string): value is OpportunityStage {
+  return (STAGES as readonly string[]).includes(value);
+}
+
 export function canTransitionStage(from: OpportunityStage, to: OpportunityStage): boolean {
   return ALLOWED_TRANSITIONS[from]?.includes(to) ?? false;
 }
@@ -25,10 +40,15 @@ export function assertStageTransition(from: OpportunityStage, to: OpportunitySta
   }
 }
 
-// "lost" is technically reachable from anywhere except itself and "won" —
-// this is worth a dedicated helper, since it's a real, common business
-// need (a deal can die at any stage) that the strict linear graph above
-// doesn't otherwise allow for non-adjacent stages.
+export function nextStages(from: OpportunityStage): OpportunityStage[] {
+  return ALLOWED_TRANSITIONS[from] ?? [];
+}
+
+export function isOpenStage(stage: OpportunityStage): boolean {
+  return stage !== "won" && stage !== "lost";
+}
+
+// Kept for existing callers: "lost" is reachable from every open stage.
 export function canMarkLost(from: OpportunityStage): boolean {
   return from !== "won" && from !== "lost";
 }

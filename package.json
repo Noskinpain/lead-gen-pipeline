@@ -9,6 +9,7 @@
     "acquisition:test": "tsx --env-file=.env.local src/lib/acquisition.test.ts"
   },
   "dependencies": {
+    "@supabase/ssr": "^0.12.7",
     "@supabase/supabase-js": "^2.116.0",
     "next": "16.3.5",
     "openai": "^7.17.0",
