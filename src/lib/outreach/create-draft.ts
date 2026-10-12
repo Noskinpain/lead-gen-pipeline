@@ -5,25 +5,38 @@ import { runQualityGate } from "./quality-gate";
 import { logger } from "../logger";
 
 export async function createOutreachDraft(campaignId: string, companyId: string, contactId: string) {
+  // Do-not-contact is checked FIRST, before spending an LLM call on a draft
+  // that must never be sent.
+  const { data: contact } = await supabase
+    .from("contacts")
+    .select("email, email_status, do_not_contact, do_not_contact_reason")
+    .eq("id", contactId)
+    .single();
+
+  if (contact?.do_not_contact) {
+    logger.warn("Draft blocked: contact is marked do not contact", { companyId, contactId });
+    return {
+      status: "blocked" as const,
+      reason: `Contact is marked do not contact${contact.do_not_contact_reason ? ` (${contact.do_not_contact_reason})` : ""}.`,
+    };
+  }
+
   const context = await buildOutreachContext(companyId, contactId);
   if (!context) {
     logger.warn("Cannot create draft — missing company or contact", { companyId, contactId });
     return { status: "failed" as const, reason: "Missing company or contact data" };
   }
 
-  const { data: contact } = await supabase
-    .from("contacts")
-    .select("email, email_status")
-    .eq("id", contactId)
-    .single();
-
-  const { data: existingMessages } = await supabase
+  // Only emails that actually went out count as "already contacted". A draft
+  // still in review, or a rejected one, doesn't.
+  const { data: priorSends } = await supabase
     .from("outreach_messages")
     .select("id")
-    .eq("contact_id", contactId);
+    .eq("contact_id", contactId)
+    .not("status", "in", "(DRAFT,APPROVED,SCHEDULED,REJECTED)")
+    .limit(1);
 
-  const alreadyContacted = (existingMessages?.length ?? 0) > 0;
-  const unsubscribed = false; // no unsubscribe tracking exists yet at this stage — honestly false, not assumed
+  const alreadyContacted = (priorSends?.length ?? 0) > 0;
 
   const message = await generateMessage(context);
   if (!message) {
@@ -31,7 +44,9 @@ export async function createOutreachDraft(campaignId: string, companyId: string,
     return { status: "failed" as const, reason: "Message generation failed" };
   }
 
-  const quality = runQualityGate(message, context, contact?.email ?? null, alreadyContacted, unsubscribed);
+  // The contact is not do-not-contact at this point (blocked above), so the
+  // gate's "unsubscribed" input is genuinely false now, not assumed.
+  const quality = runQualityGate(message, context, contact?.email ?? null, alreadyContacted, false);
 
   const { data: saved, error } = await supabase
     .from("outreach_messages")

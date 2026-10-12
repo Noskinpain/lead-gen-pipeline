@@ -1,15 +1,24 @@
 export type MessageStatus =
-  | "DRAFT" | "APPROVED" | "SCHEDULED" | "SENT" | "DELIVERED"
-  | "REPLIED" | "QUALIFIED" | "MEETING_BOOKED" | "CONVERTED"
-  | "BOUNCED" | "UNSUBSCRIBED" | "NO_REPLY";
+  | "DRAFT"
+  | "APPROVED"
+  | "SCHEDULED"
+  | "SENT"
+  | "DELIVERED"
+  | "REPLIED"
+  | "QUALIFIED"
+  | "MEETING_BOOKED"
+  | "CONVERTED"
+  | "BOUNCED"
+  | "UNSUBSCRIBED"
+  | "NO_REPLY"
+  | "REJECTED";
 
-// Explicit allowed transitions — a message can only move to a state
-// reachable from its current one. This prevents, e.g., a BOUNCED
-// message from later being marked SENT, or a DRAFT jumping straight
-// to CONVERTED without passing through real states.
+// Explicit allowed transitions: a message can only move to a state reachable
+// from its current one. This prevents, e.g., a BOUNCED message from later
+// being marked SENT, or a DRAFT jumping straight to CONVERTED.
 const ALLOWED_TRANSITIONS: Record<MessageStatus, MessageStatus[]> = {
-  DRAFT: ["APPROVED"],
-  APPROVED: ["SCHEDULED", "SENT"],
+  DRAFT: ["APPROVED", "REJECTED"],
+  APPROVED: ["SCHEDULED", "SENT", "REJECTED"],
   SCHEDULED: ["SENT"],
   SENT: ["DELIVERED", "BOUNCED"],
   DELIVERED: ["REPLIED", "NO_REPLY"],
@@ -20,6 +29,7 @@ const ALLOWED_TRANSITIONS: Record<MessageStatus, MessageStatus[]> = {
   CONVERTED: [],
   BOUNCED: [],
   UNSUBSCRIBED: [],
+  REJECTED: [],
 };
 
 export function canTransition(from: MessageStatus, to: MessageStatus): boolean {

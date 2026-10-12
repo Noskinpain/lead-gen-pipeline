@@ -31,25 +31,41 @@ export function describeEvent(
   toStage: string | null,
   metadata: Record<string, unknown> | null
 ): string {
+  const meta = metadata ?? {};
+  const stagePart = fromStage && toStage ? ` (${label(fromStage)} to ${label(toStage)})` : "";
+
   switch (eventType) {
     case "stage_changed": {
-      const reason = typeof metadata?.lost_reason === "string" ? `. Reason: ${metadata.lost_reason}` : "";
+      const reason = typeof meta.lost_reason === "string" ? `. Reason: ${meta.lost_reason}` : "";
       return `Moved from ${fromStage ? label(fromStage) : "?"} to ${toStage ? label(toStage) : "?"}${reason}`;
     }
+    case "opportunity_created":
+      return "Deal created";
     case "opportunity_updated": {
-      const changes = metadata?.changes;
+      const changes = meta.changes;
       const fields = changes && typeof changes === "object" ? Object.keys(changes).map(label).join(", ") : "details";
       return `Updated ${fields}`;
     }
     case "note_added":
       return "Added a note";
     case "task_created":
-      return `Created task "${String(metadata?.title ?? "")}"`;
+      return `Created task "${String(meta.title ?? "")}"`;
     case "task_status_changed":
-      return `Task "${String(metadata?.title ?? "")}" marked ${label(String(metadata?.to ?? ""))}`;
-    default: {
-      const stagePart = fromStage && toStage ? ` (${label(fromStage)} to ${label(toStage)})` : "";
-      return `${label(eventType)}${stagePart}`;
+      return `Task "${String(meta.title ?? "")}" marked ${label(String(meta.to ?? ""))}`;
+    case "reply_logged": {
+      const intent = typeof meta.intent === "string" ? label(meta.intent) : "not classified";
+      const confidence = typeof meta.confidence === "number" ? ` (${Math.round(meta.confidence * 100)}% confidence)` : "";
+      return `Logged a reply: ${intent}${confidence}`;
     }
+    case "reply_classified": {
+      const intent = typeof meta.intent === "string" ? label(meta.intent) : "unknown";
+      return `Reply classified as ${intent}${stagePart}`;
+    }
+    case "do_not_contact_changed": {
+      const reason = typeof meta.reason === "string" && meta.reason ? `. ${meta.reason}` : "";
+      return meta.flag === true ? `Marked the contact do not contact${reason}` : `Cleared do not contact${reason}`;
+    }
+    default:
+      return `${label(eventType)}${stagePart}`;
   }
 }

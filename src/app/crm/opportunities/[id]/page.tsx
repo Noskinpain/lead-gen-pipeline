@@ -4,11 +4,20 @@ import { z } from "zod";
 import styles from "@/app/crm/crm.module.css";
 import { Flash } from "@/app/crm/flash";
 import { addNote, createTask, moveStage, setTaskStatus, updateOpportunity } from "@/app/crm/actions";
+import { logReply } from "@/app/crm/reply-actions";
+import { setDoNotContact } from "@/app/crm/contact-actions";
 import { requireUser } from "@/lib/auth";
 import { loadOpportunityDetail } from "@/lib/crm/load-opportunity";
 import { isOpenStage, isStage, nextStages } from "@/lib/crm/opportunity-state-machine";
 import { TASK_PRIORITIES, TASK_TYPES } from "@/lib/crm/task-constants";
 import { day, describeEvent, label, money } from "@/lib/crm/format";
+
+function intentClass(intent: string | null): string {
+  if (intent === "interested") return styles.badgeGood;
+  if (intent === "unsubscribe" || intent === "not_interested") return styles.badgeBad;
+  if (intent === "redirect" || intent === "question") return styles.badgeWarn;
+  return "";
+}
 
 export default async function OpportunityPage({
   params,
@@ -26,7 +35,7 @@ export default async function OpportunityPage({
   const detail = await loadOpportunityDetail(id);
   if (!detail) notFound();
 
-  const { opportunity, company, contact, people, events, notes, tasks, messages } = detail;
+  const { opportunity, company, contact, people, events, notes, tasks, messages, replies } = detail;
   const returnTo = `/crm/opportunities/${opportunity.id}`;
 
   const stage = isStage(opportunity.stage) ? opportunity.stage : null;
@@ -49,18 +58,26 @@ export default async function OpportunityPage({
       <section className={styles.panel}>
         <h1 className={styles.pageTitle}>
           {opportunity.name}{" "}
-          <span className={`${styles.badge} ${stage === "won" ? styles.badgeGood : stage === "lost" ? styles.badgeBad : styles.badgeAccent}`}>
+          <span
+            className={`${styles.badge} ${stage === "won" ? styles.badgeGood : stage === "lost" ? styles.badgeBad : styles.badgeAccent}`}
+          >
             {label(opportunity.stage)}
           </span>
         </h1>
         <div className={styles.muted}>
-          {company.name}
+          <Link href={`/crm/companies/${company.id}`}>{company.name}</Link>
           {company.domain ? ` (${company.domain})` : ""}
         </div>
         <div className={styles.muted}>
-          {contact
-            ? `${contact.name}${contact.title ? ` - ${contact.title}` : ""} | email: ${contact.emailStatus ?? "unknown"}`
-            : "No contact on this deal"}
+          {contact ? (
+            <>
+              <Link href={`/crm/companies/${company.id}#contact-${contact.id}`}>{contact.name}</Link>
+              {contact.title ? ` - ${contact.title}` : ""} | email: {contact.emailStatus ?? "unknown"}{" "}
+              {contact.doNotContact && <span className={`${styles.badge} ${styles.badgeBad}`}>do not contact</span>}
+            </>
+          ) : (
+            "No contact on this deal"
+          )}
         </div>
         <div className={styles.muted}>
           Estimated value: {money(opportunity.estimatedValue)}
@@ -87,7 +104,12 @@ export default async function OpportunityPage({
                   <form action={moveStage} className={styles.formRow}>
                     <input type="hidden" name="opportunityId" value={opportunity.id} />
                     <input type="hidden" name="returnTo" value={returnTo} />
-                    <select name="toStage" className={styles.select} style={{ width: "auto" }} defaultValue={forwardStages[0]}>
+                    <select
+                      name="toStage"
+                      className={styles.select}
+                      style={{ width: "auto" }}
+                      defaultValue={forwardStages[0]}
+                    >
                       {forwardStages.map((s) => (
                         <option key={s} value={s}>
                           {label(s)}
@@ -237,8 +259,7 @@ export default async function OpportunityPage({
                   return (
                     <li key={t.id} className={styles.listItem}>
                       <div>
-                        <strong>{t.title}</strong>{" "}
-                        <span className={styles.badge}>{label(t.status)}</span>{" "}
+                        <strong>{t.title}</strong> <span className={styles.badge}>{label(t.status)}</span>{" "}
                         {t.overdue && <span className={`${styles.badge} ${styles.badgeBad}`}>overdue</span>}
                       </div>
                       <div className={styles.muted}>
@@ -250,15 +271,30 @@ export default async function OpportunityPage({
                         <input type="hidden" name="returnTo" value={returnTo} />
                         {taskIsOpen ? (
                           <>
-                            <button type="submit" name="status" value="completed" className={`${styles.buttonSecondary} ${styles.buttonSmall}`}>
+                            <button
+                              type="submit"
+                              name="status"
+                              value="completed"
+                              className={`${styles.buttonSecondary} ${styles.buttonSmall}`}
+                            >
                               Done
                             </button>
-                            <button type="submit" name="status" value="cancelled" className={`${styles.buttonSecondary} ${styles.buttonSmall}`}>
+                            <button
+                              type="submit"
+                              name="status"
+                              value="cancelled"
+                              className={`${styles.buttonSecondary} ${styles.buttonSmall}`}
+                            >
                               Cancel
                             </button>
                           </>
                         ) : (
-                          <button type="submit" name="status" value="pending" className={`${styles.buttonSecondary} ${styles.buttonSmall}`}>
+                          <button
+                            type="submit"
+                            name="status"
+                            value="pending"
+                            className={`${styles.buttonSecondary} ${styles.buttonSmall}`}
+                          >
                             Reopen
                           </button>
                         )}
@@ -360,6 +396,100 @@ export default async function OpportunityPage({
         </div>
 
         <div>
+          {/* ---------- Contact and do-not-contact ---------- */}
+          {contact && (
+            <section className={styles.panel}>
+              <h2 className={styles.panelTitle}>Contact</h2>
+              <div>
+                <Link href={`/crm/companies/${company.id}#contact-${contact.id}`}>{contact.name}</Link>
+                {contact.title ? ` - ${contact.title}` : ""}
+              </div>
+              <div className={styles.muted}>Email check: {contact.emailStatus ?? "unknown"}</div>
+
+              {contact.doNotContact ? (
+                <>
+                  <div style={{ marginTop: 10 }}>
+                    <span className={`${styles.badge} ${styles.badgeBad}`}>do not contact</span>{" "}
+                    <span className={styles.muted}>{contact.doNotContactReason ?? ""}</span>
+                  </div>
+                  <p className={styles.muted}>Drafts and sends to this contact are blocked.</p>
+                  <form action={setDoNotContact}>
+                    <input type="hidden" name="contactId" value={contact.id} />
+                    <input type="hidden" name="opportunityId" value={opportunity.id} />
+                    <input type="hidden" name="returnTo" value={returnTo} />
+                    <input type="hidden" name="flag" value="0" />
+                    <input
+                      name="reason"
+                      required
+                      maxLength={300}
+                      placeholder="Why is it OK to contact them again?"
+                      className={styles.input}
+                    />
+                    <button type="submit" className={`${styles.buttonSecondary} ${styles.buttonSmall}`} style={{ marginTop: 8 }}>
+                      Allow contact again
+                    </button>
+                  </form>
+                </>
+              ) : (
+                <form action={setDoNotContact}>
+                  <input type="hidden" name="contactId" value={contact.id} />
+                  <input type="hidden" name="opportunityId" value={opportunity.id} />
+                  <input type="hidden" name="returnTo" value={returnTo} />
+                  <input type="hidden" name="flag" value="1" />
+                  <input name="reason" maxLength={300} placeholder="Reason (optional)" className={styles.input} />
+                  <button type="submit" className={`${styles.buttonDanger} ${styles.buttonSmall}`} style={{ marginTop: 8 }}>
+                    Mark do not contact
+                  </button>
+                </form>
+              )}
+            </section>
+          )}
+
+          {/* ---------- Replies ---------- */}
+          <section className={styles.panel}>
+            <h2 className={styles.panelTitle}>Replies ({replies.length})</h2>
+            <p className={styles.muted}>
+              Paste a reply you received by email. The classifier reads it, then your rules decide whether the deal moves.
+              An unsubscribe marks the contact do not contact.
+            </p>
+            {(stage === "new" || stage === "qualified") && (
+              <p className={styles.muted}>
+                This deal isn't marked contacted yet, so a reply won't move its stage. Move it to Contacted first if you
+                emailed them.
+              </p>
+            )}
+
+            <form action={logReply}>
+              <input type="hidden" name="opportunityId" value={opportunity.id} />
+              <input type="hidden" name="returnTo" value={returnTo} />
+              <textarea name="body" required maxLength={5000} placeholder="Paste the reply" className={styles.textarea} />
+              <button type="submit" className={styles.buttonPrimary}>
+                Log reply and classify
+              </button>
+            </form>
+
+            {replies.length > 0 && (
+              <ul className={styles.list} style={{ marginTop: 14 }}>
+                {replies.map((r) => (
+                  <li key={r.id} className={styles.listItem}>
+                    <div>
+                      <span className={`${styles.badge} ${intentClass(r.intent)}`}>
+                        {r.intent ? label(r.intent) : "not classified"}
+                      </span>{" "}
+                      <span className={styles.muted}>
+                        {r.confidence !== null ? `${Math.round(r.confidence * 100)}% | ` : ""}
+                        {r.appliedAction ? `${label(r.appliedAction)} | ` : ""}
+                        {r.loggedByName} | {day(r.createdAt)}
+                      </span>
+                    </div>
+                    {r.classifierReason && <div className={styles.muted}>{r.classifierReason}</div>}
+                    <div style={{ whiteSpace: "pre-wrap", marginTop: 4 }}>{r.body}</div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
           {/* ---------- Timeline ---------- */}
           <section className={styles.panel}>
             <h2 className={styles.panelTitle}>Timeline</h2>

@@ -68,8 +68,6 @@ interface OpportunityRow {
   updated_at: string;
 }
 
-// Throws if the query failed, so a broken query shows up as a visible error
-// instead of silently rendering as "no records".
 function must<T>(result: { data: T | null; error: { message: string } | null }, label: string): T {
   if (result.error) throw new Error(`${label}: ${result.error.message}`);
   return (result.data ?? []) as unknown as T;
@@ -104,7 +102,11 @@ export async function loadFunnelDetails(): Promise<{ details: FunnelDetails | nu
       taskResult,
       opportunityResult,
     ] = await Promise.all([
-      supabase.from("companies").select("id, company_name, domain, source, created_at").order("created_at", newest),
+      supabase
+        .from("companies")
+        .select("id, company_name, domain, source, created_at")
+        .order("created_at", newest)
+        .limit(1000),
       supabase
         .from("lead_scores")
         .select("company_id, priority, fit_score, intent_score, created_at")

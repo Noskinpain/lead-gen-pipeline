@@ -102,6 +102,10 @@
   color: var(--muted);
 }
 
+.clickable {
+  cursor: pointer;
+}
+
 /* ---------- Forms and buttons ---------- */
 
 .label {
@@ -180,7 +184,8 @@
 /* ---------- Banners and badges ---------- */
 
 .okBanner,
-.errorBanner {
+.errorBanner,
+.notice {
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -194,6 +199,11 @@
 
 .errorBanner {
   border-left: 3px solid var(--bad);
+}
+
+.notice {
+  border-left: 3px solid var(--warn);
+  color: var(--muted);
 }
 
 .badge {
@@ -264,6 +274,40 @@
 
 .listItem:last-child {
   border-bottom: none;
+}
+
+/* ---------- Funnel bars ---------- */
+
+.barRow {
+  display: grid;
+  grid-template-columns: 150px 1fr 48px;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.barTrack {
+  background: var(--bg);
+  border-radius: 4px;
+  height: 12px;
+  overflow: hidden;
+}
+
+.barFill {
+  background: var(--accent);
+  height: 100%;
+  border-radius: 4px;
+}
+
+.barValue {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.recordsList {
+  margin: 0 0 10px 160px;
+  padding-left: 18px;
+  color: var(--muted);
 }
 
 /* ---------- Pipeline board ---------- */

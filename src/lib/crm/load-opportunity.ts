@@ -21,7 +21,14 @@ export interface OpportunityDetail {
     closedAt: string | null;
   };
   company: { id: string; name: string; domain: string | null };
-  contact: { id: string; name: string; title: string | null; emailStatus: string | null } | null;
+  contact: {
+    id: string;
+    name: string;
+    title: string | null;
+    emailStatus: string | null;
+    doNotContact: boolean;
+    doNotContactReason: string | null;
+  } | null;
   people: Person[];
   events: Array<{
     id: string;
@@ -44,6 +51,16 @@ export interface OpportunityDetail {
     overdue: boolean;
   }>;
   messages: Array<{ id: string; subject: string; status: string; createdAt: string }>;
+  replies: Array<{
+    id: string;
+    body: string;
+    intent: string | null;
+    confidence: number | null;
+    classifierReason: string | null;
+    appliedAction: string | null;
+    loggedByName: string;
+    createdAt: string;
+  }>;
 }
 
 interface OppRow {
@@ -67,6 +84,27 @@ interface ProfileRow {
   full_name: string | null;
 }
 
+interface ContactRow {
+  id: string;
+  first_name: string;
+  last_name: string;
+  job_title: string | null;
+  email_status: string | null;
+  do_not_contact: boolean;
+  do_not_contact_reason: string | null;
+}
+
+interface ReplyRow {
+  id: string;
+  body: string;
+  intent: string | null;
+  confidence: number | null;
+  classifier_reason: string | null;
+  applied_action: string | null;
+  logged_by_id: string | null;
+  created_at: string;
+}
+
 export async function loadOpportunityDetail(id: string): Promise<OpportunityDetail | null> {
   const opportunities = must<OppRow[]>(
     await supabase
@@ -81,16 +119,16 @@ export async function loadOpportunityDetail(id: string): Promise<OpportunityDeta
   const opportunity = opportunities[0];
   if (!opportunity) return null;
 
-  const [companyResult, contactResult, profileResult, eventResult, noteResult, taskResult, messageResult] =
+  const [companyResult, contactResult, profileResult, eventResult, noteResult, taskResult, messageResult, replyResult] =
     await Promise.all([
       supabase.from("companies").select("id, company_name, domain").eq("id", opportunity.company_id).limit(1),
       opportunity.contact_id
         ? supabase
             .from("contacts")
-            .select("id, first_name, last_name, job_title, email_status")
+            .select("id, first_name, last_name, job_title, email_status, do_not_contact, do_not_contact_reason")
             .eq("id", opportunity.contact_id)
             .limit(1)
-        : Promise.resolve({ data: [], error: null }),
+        : Promise.resolve({ data: [] as ContactRow[], error: null }),
       supabase.from("profiles").select("id, email, full_name").eq("approved", true),
       supabase
         .from("opportunity_events")
@@ -113,12 +151,15 @@ export async function loadOpportunityDetail(id: string): Promise<OpportunityDeta
         .eq("company_id", opportunity.company_id)
         .order("created_at", { ascending: false })
         .limit(20),
+      supabase
+        .from("outreach_replies")
+        .select("id, body, intent, confidence, classifier_reason, applied_action, logged_by_id, created_at")
+        .eq("opportunity_id", id)
+        .order("created_at", { ascending: false }),
     ]);
 
   const company = must<Array<{ id: string; company_name: string; domain: string | null }>>(companyResult, "company")[0];
-  const contact = must<
-    Array<{ id: string; first_name: string; last_name: string; job_title: string | null; email_status: string | null }>
-  >(contactResult, "contact")[0];
+  const contact = must<ContactRow[]>(contactResult, "contact")[0];
   const profiles = must<ProfileRow[]>(profileResult, "profiles");
   const events = must<
     Array<{
@@ -150,6 +191,7 @@ export async function loadOpportunityDetail(id: string): Promise<OpportunityDeta
     messageResult,
     "messages"
   );
+  const replies = must<ReplyRow[]>(replyResult, "replies");
 
   const nameOf = (profileId: string | null): string | null => {
     if (!profileId) return null;
@@ -181,6 +223,8 @@ export async function loadOpportunityDetail(id: string): Promise<OpportunityDeta
           name: `${contact.first_name} ${contact.last_name}`,
           title: contact.job_title,
           emailStatus: contact.email_status,
+          doNotContact: contact.do_not_contact,
+          doNotContactReason: contact.do_not_contact_reason,
         }
       : null,
     people: profiles.map((p) => ({ id: p.id, label: personLabel(p) })),
@@ -210,5 +254,15 @@ export async function loadOpportunityDetail(id: string): Promise<OpportunityDeta
       overdue: isOverdue(t.due_at, t.status),
     })),
     messages: messages.map((m) => ({ id: m.id, subject: m.subject, status: m.status, createdAt: m.created_at })),
+    replies: replies.map((r) => ({
+      id: r.id,
+      body: r.body,
+      intent: r.intent,
+      confidence: toNumberOrNull(r.confidence),
+      classifierReason: r.classifier_reason,
+      appliedAction: r.applied_action,
+      loggedByName: nameOf(r.logged_by_id) ?? "unknown",
+      createdAt: r.created_at,
+    })),
   };
 }
