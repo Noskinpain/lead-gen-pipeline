@@ -8,7 +8,7 @@ export interface PersonalizationScore {
   natural: boolean;
   professional: boolean;
   overallScore: number; // out of 5
-  reviewerNotes: string;
+  reviewerNotes?: string;
 }
 
 // This is deliberately a MANUAL scoring function, not automated —

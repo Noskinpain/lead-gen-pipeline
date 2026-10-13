@@ -26,6 +26,7 @@ const score = scorePersonalization(realMessage, realContext, {
   relevant: true,
   natural: false, // YOUR call — the opening sentence reads stiff/awkward
   professional: true,
+  reviewerNotes: "The opening sentence reads stiff/awkward.",
 });
 
 console.log(score);

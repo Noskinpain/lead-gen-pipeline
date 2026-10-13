@@ -20,8 +20,15 @@ const replyTestCases: ReplyTestCase[] = [
   { text: "Who is this?", expectedIntent: "unclear" },
 ];
 
+export interface ClassifierResult {
+  text: string;
+  expected: string;
+  actual: string;
+  correct: boolean;
+}
+
 export async function evaluateReplyClassifier(cases: ReplyTestCase[] = replyTestCases) {
-  const results = [];
+  const results: ClassifierResult[] = [];
   for (const c of cases) {
     const classification = await classifyReply(c.text);
     results.push({ text: c.text, expected: c.expectedIntent, actual: classification?.intent ?? "FAILED", correct: classification?.intent === c.expectedIntent });
