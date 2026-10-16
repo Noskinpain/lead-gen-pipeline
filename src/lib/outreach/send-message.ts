@@ -3,6 +3,10 @@ import { sendEmail } from "./send-email";
 import { assertTransition, MessageStatus } from "./state-machine";
 import { logger } from "../logger";
 import { syncOpportunityFromOutreach } from "../crm/sync-from-outreach";
+import { checkContactable } from "../compliance/contactable";
+import { getSenderIdentity } from "../compliance/sender-identity";
+import { createUnsubscribeToken } from "../compliance/unsubscribe-token";
+import { buildFooter, unsubscribeUrlFor } from "../compliance/footer";
 
 export async function sendMessage(messageId: string) {
   const { data: message } = await supabase
@@ -13,25 +17,33 @@ export async function sendMessage(messageId: string) {
 
   if (!message) throw new Error("Message not found");
 
-  const { data: contact } = await supabase
-    .from("contacts")
-    .select("email, do_not_contact, do_not_contact_reason")
-    .eq("id", message.contact_id)
-    .single();
-
   // Last line of defense: whatever path got a message here (the CRM, a script,
-  // n8n), a do-not-contact contact is never sent to.
-  if (contact?.do_not_contact) {
-    logger.warn("Send blocked: contact is marked do not contact", { messageId });
+  // n8n), a contact who may not be emailed is never sent to.
+  const contactable = await checkContactable(message.contact_id, { realSend: false });
+  if (!contactable.ok) {
+    logger.warn("Send blocked by compliance check", { messageId, kind: contactable.kind });
+    return { status: "blocked" as const, reason: `Not sent: ${contactable.reason}` };
+  }
+
+  const sender = getSenderIdentity();
+  if (!sender.ok) {
     return {
       status: "blocked" as const,
-      reason: `Contact is marked do not contact${contact.do_not_contact_reason ? ` (${contact.do_not_contact_reason})` : ""}.`,
+      reason: `Not sent: the sender identity is incomplete (missing ${sender.missing.join(", ")}).`,
     };
   }
 
   assertTransition(message.status as MessageStatus, "SENT");
 
-  const result = await sendEmail(message.subject, message.body, contact?.email ?? "");
+  // Sender identity, where the details came from, the privacy notice and the
+  // unsubscribe link go on every email, added here so they can't be edited out.
+  const unsubscribeUrl = unsubscribeUrlFor(sender.identity.baseUrl, createUnsubscribeToken(messageId));
+  const footer = buildFooter(sender.identity, unsubscribeUrl, contactable.collectedFrom);
+
+  const result = await sendEmail(message.subject, `${message.body}\n${footer}`, contactable.email, {
+    "List-Unsubscribe": `<${unsubscribeUrl}>`,
+    "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+  });
 
   if (!result.success) {
     logger.error("Send failed", { messageId, error: result.error });

@@ -2,8 +2,8 @@ import { Resend } from "resend";
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-// Resend's official test address — simulates a real send/delivery
-// without any mail actually reaching a real inbox.
+// Resend's official test address: simulates a real send/delivery without any
+// mail reaching a real inbox. Real sending is deliberately not enabled yet.
 const TEST_RECIPIENT = "delivered@resend.dev";
 
 export interface SendResult {
@@ -12,11 +12,15 @@ export interface SendResult {
   error?: string;
 }
 
-export async function sendEmail(subject: string, body: string, realRecipientEmail: string): Promise<SendResult> {
-  // Deliberately override the real recipient with the safe test address —
-  // today's build proves the pipeline works without risking a real send
-  // to someone whose lawful-basis-for-contact question is still open.
-  void realRecipientEmail; // acknowledged but intentionally unused today
+export async function sendEmail(
+  subject: string,
+  body: string,
+  realRecipientEmail: string,
+  headers?: Record<string, string>
+): Promise<SendResult> {
+  // The real recipient is accepted but deliberately unused: every send goes to
+  // the sandbox address until real sending is switched on.
+  void realRecipientEmail;
 
   try {
     const result = await resend.emails.send({
@@ -24,6 +28,7 @@ export async function sendEmail(subject: string, body: string, realRecipientEmai
       to: TEST_RECIPIENT,
       subject,
       text: body,
+      headers,
     });
 
     if (result.error) {

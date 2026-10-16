@@ -3,22 +3,15 @@ import { buildOutreachContext } from "./build-context";
 import { generateMessage } from "./generate-message";
 import { runQualityGate } from "./quality-gate";
 import { logger } from "../logger";
+import { checkContactable } from "../compliance/contactable";
+import { getSenderIdentity } from "../compliance/sender-identity";
 
 export async function createOutreachDraft(campaignId: string, companyId: string, contactId: string) {
-  // Do-not-contact is checked FIRST, before spending an LLM call on a draft
-  // that must never be sent.
-  const { data: contact } = await supabase
-    .from("contacts")
-    .select("email, email_status, do_not_contact, do_not_contact_reason")
-    .eq("id", contactId)
-    .single();
-
-  if (contact?.do_not_contact) {
-    logger.warn("Draft blocked: contact is marked do not contact", { companyId, contactId });
-    return {
-      status: "blocked" as const,
-      reason: `Contact is marked do not contact${contact.do_not_contact_reason ? ` (${contact.do_not_contact_reason})` : ""}.`,
-    };
+  // Checked FIRST, before spending an LLM call on a draft that must never be sent.
+  const contactable = await checkContactable(contactId, { realSend: false });
+  if (!contactable.ok) {
+    logger.warn("Draft blocked by compliance check", { companyId, contactId, kind: contactable.kind });
+    return { status: "blocked" as const, reason: contactable.reason };
   }
 
   const context = await buildOutreachContext(companyId, contactId);
@@ -38,15 +31,23 @@ export async function createOutreachDraft(campaignId: string, companyId: string,
 
   const alreadyContacted = (priorSends?.length ?? 0) > 0;
 
-  const message = await generateMessage(context);
-  if (!message) {
+  const generated = await generateMessage(context);
+  if (!generated) {
     logger.warn("LLM message generation failed or was invalid", { companyId, contactId });
     return { status: "failed" as const, reason: "Message generation failed" };
   }
 
-  // The contact is not do-not-contact at this point (blocked above), so the
-  // gate's "unsubscribed" input is genuinely false now, not assumed.
-  const quality = runQualityGate(message, context, contact?.email ?? null, alreadyContacted, false);
+  // Fill in the signature from the sender settings, so a real name is what the
+  // reviewer sees instead of [Your Name].
+  const sender = getSenderIdentity();
+  const message = sender.ok
+    ? { ...generated, body: generated.body.replace(/\[Your Name\]/gi, sender.identity.senderName) }
+    : generated;
+
+  const gate = runQualityGate(message, context, contactable.email, alreadyContacted, false);
+  const issues = [...gate.issues];
+  if (!sender.ok) issues.push(`Sender identity is incomplete (missing ${sender.missing.join(", ")}), so this can't be sent yet.`);
+  const passed = issues.length === 0;
 
   const { data: saved, error } = await supabase
     .from("outreach_messages")
@@ -58,8 +59,8 @@ export async function createOutreachDraft(campaignId: string, companyId: string,
       body: message.body,
       personalization_used: message.personalization_used,
       claims: message.claims,
-      quality_check_passed: quality.passed,
-      quality_issues: quality.issues,
+      quality_check_passed: passed,
+      quality_issues: issues,
       status: "DRAFT",
     })
     .select("id")
@@ -70,7 +71,7 @@ export async function createOutreachDraft(campaignId: string, companyId: string,
     return { status: "failed" as const, reason: error?.message };
   }
 
-  logger.info("Draft created", { messageId: saved.id, qualityPassed: quality.passed, issueCount: quality.issues.length });
+  logger.info("Draft created", { messageId: saved.id, qualityPassed: passed, issueCount: issues.length });
 
-  return { status: "drafted" as const, messageId: saved.id, qualityPassed: quality.passed, issues: quality.issues };
+  return { status: "drafted" as const, messageId: saved.id, qualityPassed: passed, issues };
 }
